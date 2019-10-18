@@ -68,6 +68,8 @@
 	#include <iniparser.h>
 #endif
 
+#include "../lib/afSTFT/src/afSTFTlib.h"
+
 #include "output/graphical.h"
 #include "output/raw.h"
 #include "input/fifo.h"
@@ -387,9 +389,20 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 	} else for(i=0; i<M; i++) audio.audio_out_l[i] = 0;
 
 	//fft: planning to rock
-	fftw_complex outl[M/2+1], outr[M/2+1];
+	//M = 1024;
+	afSTFT *out;
+	afSTFTinit(&out, M, 1, 1, 0, 0);
+	printf("hopSize: %d\n", out->hopSize);
+	float *inlf = malloc(sizeof(float)*M);
+	complexVector outL;
+	outL.re = malloc(sizeof(float)*M);
+	outL.im = malloc(sizeof(float)*M);
+	
+	fftw_complex outl[M]; //outl[M/2+1], outr[M/2+1];
+	/**
 	fftw_plan pl = fftw_plan_dft_r2c_1d(M, inl, outl, FFTW_MEASURE), pr;
 	if(p.stereo) pr = fftw_plan_dft_r2c_1d(M, inr, outr, FFTW_MEASURE);
+	**/
 
 	#ifdef ALSA
 	// input_alsa: wait for the input to be ready
@@ -397,7 +410,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 		if (is_loop_device_for_sure(audio.source)) {
 			if (directory_exists("/sys/")) {
 				if (! directory_exists("/sys/module/snd_aloop/")) {
-      				cleanup();
+					cleanup();
 					fprintf(stderr,
 					"Linux kernel module \"snd_aloop\" does not seem to  be loaded.\n"
 					"Maybe run \"sudo modprobe snd_aloop\".\n");
@@ -520,7 +533,6 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 				if(access(p.raw_target, F_OK) != -1) {
 					//testopening in case it's a fifo
 					fptest = open(p.raw_target, O_RDONLY | O_NONBLOCK, 0644);
-	
 					if (fptest == -1) {
 						printf("could not open file %s for writing\n",
 							p.raw_target);
@@ -536,7 +548,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 					//fifo needs to be open for reading in order to write to it
 					fptest = open(p.raw_target, O_RDONLY | O_NONBLOCK, 0644); 
 				}
-		    }
+			}
 
 			fp = open(p.raw_target, O_WRONLY | O_NONBLOCK | O_CREAT, 0644);
 			if (fp == -1) {
@@ -548,11 +560,11 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             //width must be hardcoded for raw output.
 			p.w = 200;
 
-    		if (strcmp(p.data_format, "binary") == 0) {
-                height = pow(2, p.bit_format) - 1;
-            } else {
-                height = p.ascii_range;
-            }
+			if (strcmp(p.data_format, "binary") == 0) {
+				height = pow(2, p.bit_format) - 1;
+			} else {
+				height = p.ascii_range;
+			}
 		}
 		#endif
 
@@ -567,7 +579,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 		if(p.om == 7) apply_win_settings();
 		#endif
 		
- 		//handle for user setting too many bars
+		//handle for user setting too many bars
 		if (p.fixedbars) {
 			p.autobars = 0;
 			if (p.fixedbars * p.bw + p.fixedbars * p.bs - p.bs > p.w) p.autobars = 1;
@@ -753,15 +765,21 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
 				// process: execute FFT and sort frequency bands
 				if (p.stereo) {
-					fftw_execute(pl);
-					fftw_execute(pr);
+					//fftw_execute(pl);
+					//fftw_execute(pr);
 
-					fl = separate_freq_bands(outl,calcbars,lcf,hcf, k, 1, 
-						p.sens, p.ignore, M);
-					fr = separate_freq_bands(outr,calcbars,lcf,hcf, k, 2, 
-						p.sens, p.ignore, M);
+					//fl = separate_freq_bands(outl,calcbars,lcf,hcf, k, 1, 
+					//	p.sens, p.ignore, M);
+					//fr = separate_freq_bands(outr,calcbars,lcf,hcf, k, 2, 
+					//	p.sens, p.ignore, M);
 				} else {
-					fftw_execute(pl);
+					for(int i=0; i<M; i++) inlf[i] = inl[i];
+					afSTFTforward(out, &inlf, &outL); 
+					for(int i=0; i<M; i++) {
+						outl[i][0] = outL.re[i];
+						outl[i][1] = outL.im[i];
+					}
+					//fftw_execute(pl);
 					fl = separate_freq_bands(outl,calcbars,lcf,hcf, k, 1, 
 						p.sens, p.ignore, M);
 				}

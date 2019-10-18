@@ -27,6 +27,12 @@ if(NOT INIPARSER)
 	add_definitions(-DINIPARSER)
 endif()
 
+execute_process(COMMAND git submodule update --init)
+add_library(afSTFT
+			lib/afSTFT/src/afSTFTlib.c
+			lib/afSTFT/src/vecTools.c
+			lib/afSTFT/src/fft4g.c)
+
 if(DEFINE_LEGACYINIPARSER AND INIPARSER)
 	add_definitions(-DLEGACYINIPARSER)
 endif()
@@ -191,7 +197,7 @@ include_directories(${INCLUDE_DIRS})
 link_directories(${LINK_DIRS})
 
 # Link executable
-target_link_libraries(xava ${ADDITIONAL_LIBRARIES} m ${FFTW3_LIBRARIES} pthread iniparser)
+target_link_libraries(xava ${ADDITIONAL_LIBRARIES} m ${FFTW3_LIBRARIES} pthread iniparser afSTFT)
 
 # Install
 install (TARGETS xava DESTINATION bin)
