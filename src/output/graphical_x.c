@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include "graphical.h"
 #include "../config.h"
 
@@ -341,8 +342,16 @@ void clear_screen_x() {
 	}			// you figure out a less dumb to do this
 }
 
+static float stars[100][3];
+
 int apply_window_settings_x()
 {
+	for(int i=0; i<100; i++){
+		stars[i][0] = rand()%p.w;
+		stars[i][1] = rand()%DisplayHeight(xavaXDisplay, xavaXScreenNumber);
+		stars[i][2] = (5-sqrt(rand()%26))+1;
+	}
+
 	// Gets the monitors resolution
 	if(p.fullF){
 		p.w = DisplayWidth(xavaXDisplay, xavaXScreenNumber);
@@ -491,6 +500,8 @@ int get_window_input_x() {
 	return action;
 }
 
+static double speed = 0.0;
+
 void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
 {
 	// im lazy, but i just wanna make it work
@@ -502,6 +513,25 @@ void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
 
 	if(startFrameCounter<3*p.framerate)
 		startFrameCounter++;
+
+	for(int i=0; i<100; i++) {
+		//XClearArea(xavaXDisplay, xavaXWindow, stars[i][0], sin((float)stars[i][0]/100)*10+stars[i][1], (unsigned int)stars[i][2], (unsigned int)stars[i][2], 0);
+
+		stars[i][0] += stars[i][2]*speed;
+
+		//int add = speed*(rand()%4-1);
+		//if(0-add > stars[i][1])
+		//	stars[i][1] = p.h-add;
+		//else stars[i][1] += add;
+
+		if(stars[i][0] > p.w+2*xoffset) {
+			stars[i][0] = 0;
+			stars[i][1] = rand()%DisplayHeight(xavaXDisplay, xavaXScreenNumber);
+		}
+
+		XSetForeground(xavaXDisplay, xavaXGraphics, xcol.pixel);
+		XFillRectangle(xavaXDisplay, xavaXWindow, xavaXGraphics, stars[i][0], sin((float)stars[i][0]/100)*10+stars[i][1], stars[i][2], stars[i][2]);
+	}
 
 	if(GLXmode) {
 		#ifdef GLX
@@ -519,10 +549,16 @@ void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
 		glXWaitGL();
 		#endif
 	} else {
+		int tallest = 0;
 		// draw bars on the X11 window
 		for(int i = 0; i < bars; i++) {
 			// this fixes a rendering bug
-			if(f[i] > p.h) f[i] = p.h;
+			if(f[i] > p.h) {
+				f[i] = p.h;
+			}
+
+			// for the stars
+			if(f[i]>tallest) tallest=f[i];
 
 			if(f[i] > flastd[i]) {
 				// workaround for updating wallpaper in wpgtk
@@ -535,12 +571,15 @@ void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
 					XCopyArea(xavaXDisplay, gradientBox, xavaXWindow, xavaXGraphics, 0, p.h - f[i], (unsigned int)p.bw, (unsigned int)(f[i]-flastd[i]), rest + i*(p.bs+p.bw), p.h - f[i]);
 				else {
 					XSetForeground(xavaXDisplay, xavaXGraphics, xcol.pixel);
-					XFillRectangle(xavaXDisplay, xavaXWindow, xavaXGraphics, xoffset + i*(p.bs+p.bw), yoffset - f[i], (unsigned int)p.bw, (unsigned int)(f[i]-flastd[i]));
+					XFillRectangle(xavaXDisplay, xavaXWindow, xavaXGraphics, xoffset + i*(p.bs+p.bw), yoffset - f[i], (unsigned int)p.bw, (unsigned int)f[i]-flastd[i]);
 				}
 			}
 			else if (f[i] < flastd[i])
 				XClearArea(xavaXDisplay, xavaXWindow, xoffset + i*(p.bs+p.bw), yoffset - flastd[i], (unsigned int)p.bw, (unsigned int)(flastd[i]-f[i]), 0);
 		}
+
+		speed = pow(((double)tallest/p.h), 2.0);
+
 		XSync(xavaXDisplay, 0);
 	}
 	return;
@@ -554,7 +593,7 @@ void cleanup_graphical_x(void)
 	// make sure that all events are dead by this point
 	XSync(xavaXDisplay, 1);
 
-	if(gradientBox != 0) { XFreePixmap(xavaXDisplay, gradientBox); gradientBox = 0; };
+	if(gradientBox != 0) { XFreePixmap(xavaXDisplay, gradientBox); gradientBox = 0; }
  
 	#ifdef GLX
 		glXMakeCurrent(xavaXDisplay, 0, 0);
