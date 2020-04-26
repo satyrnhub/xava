@@ -35,8 +35,6 @@ static XClassHint xavaXClassHint;
 static XWMHints xavaXWMHints;
 static XEvent xev;
 
-static int startFrameCounter;
-
 #ifdef GLX
 static int VisData[] = {
 GLX_RENDER_TYPE, GLX_RGBA_BIT,
@@ -151,8 +149,6 @@ void calculateColors() {
 
 	XParseColor(xavaXDisplay, xavaXColormap, p.bcolor[0]=='#' ? p.bcolor : tempColorStr, &xbgcol);
 	XAllocColor(xavaXDisplay, xavaXColormap, &xbgcol);
-
-	startFrameCounter = 0;
 }
 
 int init_window_x(char **argv, int argc)
@@ -502,8 +498,12 @@ int get_window_input_x() {
 
 static double speed = 0.0;
 
-void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
+void draw_graphical_x(int bars, int rest, int f[200], int flastd[200], double starsSpeed)
 {
+	// figuring out a delta draw algorithm for stars is impractical
+	// so a bit of performance loss doesn't sound too bad
+	XClearWindow(xavaXDisplay, xavaXWindow);
+
 	// im lazy, but i just wanna make it work
 	int xoffset = rest, yoffset = p.h;
 	if(p.iAmRoot) {
@@ -511,13 +511,10 @@ void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
 		yoffset+=p.wy;
 	}
 
-	if(startFrameCounter<3*p.framerate)
-		startFrameCounter++;
-
 	for(int i=0; i<100; i++) {
 		//XClearArea(xavaXDisplay, xavaXWindow, stars[i][0], sin((float)stars[i][0]/100)*10+stars[i][1], (unsigned int)stars[i][2], (unsigned int)stars[i][2], 0);
 
-		stars[i][0] += stars[i][2]*speed;
+		stars[i][0] += stars[i][2]*starsSpeed;
 
 		//int add = speed*(rand()%4-1);
 		//if(0-add > stars[i][1])
@@ -552,33 +549,23 @@ void draw_graphical_x(int bars, int rest, int f[200], int flastd[200])
 		int tallest = 0;
 		// draw bars on the X11 window
 		for(int i = 0; i < bars; i++) {
+			// for the stars
+			if(f[i]>tallest) tallest=f[i];
+
 			// this fixes a rendering bug
 			if(f[i] > p.h) {
 				f[i] = p.h;
 			}
 
-			// for the stars
-			if(f[i]>tallest) tallest=f[i];
-
-			if(f[i] > flastd[i]) {
-				// workaround for updating wallpaper in wpgtk
-				// since there are no events called from SetXRoot 
-				// if you know how to capture these, I would gladly
-				// make this work less messy
-				if(startFrameCounter<p.framerate*3) flastd[i] = 0;
-
-				if(p.gradients)
-					XCopyArea(xavaXDisplay, gradientBox, xavaXWindow, xavaXGraphics, 0, p.h - f[i], (unsigned int)p.bw, (unsigned int)(f[i]-flastd[i]), rest + i*(p.bs+p.bw), p.h - f[i]);
-				else {
-					XSetForeground(xavaXDisplay, xavaXGraphics, xcol.pixel);
-					XFillRectangle(xavaXDisplay, xavaXWindow, xavaXGraphics, xoffset + i*(p.bs+p.bw), yoffset - f[i], (unsigned int)p.bw, (unsigned int)f[i]-flastd[i]);
-				}
+			if(p.gradients)
+				XCopyArea(xavaXDisplay, gradientBox, xavaXWindow, xavaXGraphics, 0, p.h - f[i], (unsigned int)p.bw, (unsigned int)f[i], rest + i*(p.bs+p.bw), p.h - f[i]);
+			else {
+				XSetForeground(xavaXDisplay, xavaXGraphics, xcol.pixel);
+				XFillRectangle(xavaXDisplay, xavaXWindow, xavaXGraphics, xoffset + i*(p.bs+p.bw), yoffset - f[i], (unsigned int)p.bw, (unsigned int)f[i]);
 			}
-			else if (f[i] < flastd[i])
-				XClearArea(xavaXDisplay, xavaXWindow, xoffset + i*(p.bs+p.bw), yoffset - flastd[i], (unsigned int)p.bw, (unsigned int)(flastd[i]-f[i]), 0);
 		}
 
-		speed = pow(((double)tallest/p.h), 2.0);
+		//speed = pow(((double)tallest/p.h), 2.0);
 
 		XSync(xavaXDisplay, 0);
 	}

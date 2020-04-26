@@ -17,6 +17,7 @@
 #endif
 #include <math.h>
 #include <fcntl.h> 
+#include <limits.h>
 
 #include <fftw3.h>
 #define max(a,b) \
@@ -310,6 +311,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 	double smh;
 	double *inl,*inr;
 	unsigned long oldTime = 0;
+	double starsSpeed = 0.0;
 	
 	//int maxvalue = 0;
 
@@ -763,6 +765,16 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 				if (silence == 1) sleep++;
 				else sleep = 0;
 
+				short maxSample = SHRT_MIN;
+				short minSample = SHRT_MAX;
+				for(i=0; i<M; i++) {
+					if(inl[i]>maxSample) maxSample = inl[i];
+					if(p.stereo&&inr[i]>maxSample) maxSample = inr[i];
+					if(inl[i]<minSample) minSample = inl[i];
+					if(p.stereo&&inr[i]<minSample) minSample = inr[i];
+				}
+				starsSpeed = pow((float)(maxSample-minSample)/(float)USHRT_MAX, 3.0);
+
 				// process: if input was present for the last 5 seconds apply FFT to it
 				if (sleep < p.framerate * 5) {
 
@@ -913,12 +925,12 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 							if(redrawWindow) {
 								if(p.iAmRoot) {
 									memset(flastd, p.h, sizeof(int)*200);
-									draw_graphical_x(bars, rest, f, flastd);
+									draw_graphical_x(bars, rest, f, flastd, starsSpeed);
 								} else clear_screen_x();
 								memset(flastd, 0x00, sizeof(int)*200);
 								redrawWindow = FALSE;
 							}
-							draw_graphical_x(bars, rest, f, flastd);
+							draw_graphical_x(bars, rest, f, flastd, starsSpeed);
 							break;
 							#endif
 						}
