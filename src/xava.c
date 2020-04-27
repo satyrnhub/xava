@@ -922,14 +922,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 							#ifdef XLIB
 							// this prevents invalid access
 							if(should_reload||reloadConf) break;
-							if(redrawWindow) {
-								if(p.iAmRoot) {
-									memset(flastd, p.h, sizeof(int)*200);
-									draw_graphical_x(bars, rest, f, flastd, starsSpeed);
-								} else clear_screen_x();
-								memset(flastd, 0x00, sizeof(int)*200);
-								redrawWindow = FALSE;
-							}
+							if(redrawWindow) redrawWindow = FALSE;
 							draw_graphical_x(bars, rest, f, flastd, starsSpeed);
 							break;
 							#endif
