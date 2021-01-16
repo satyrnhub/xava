@@ -14,6 +14,17 @@
 #include <sys/stat.h>
 #include <math.h>
 #include <limits.h>
+#include <assert.h>
+
+#ifdef WIN
+	#include <windows.h>
+#endif
+
+#ifdef __linux__
+	// I've gotten this from a stranger on the internet
+	#include <linux/limits.h>
+	#define MAX_PATH PATH_MAX
+#endif
 
 #include "output/graphical.h"
 #include "config.h"
@@ -52,7 +63,7 @@
 // inode watching is a Linux(TM) feature
 // so watch out when you're compiling it
 #if defined(__linux__)||defined(WIN)
-#include "misc/inode_watcher.h"
+	#include "misc/inode_watcher.h"
 #endif
 
 static struct supported {
@@ -86,7 +97,7 @@ void deleteSupported(struct supported *support) {
 	support->count = 0;
 }
 
-static char *inputMethod, *outputMethod, *channels;
+static char *inputMethod, *outputMethod, *channels, *shader;
 
 int validate_color(char *checkColor)
 {
@@ -213,6 +224,37 @@ void validate_config(void* params, dictionary *ini)
 	}
 	deleteSupported(&support);
 
+	// validate: shader
+	#if defined(GLX) 
+	if(GLXmode) {
+		char *fragmentShader = malloc(strlen(shader)+6);
+		char *vertexShader = malloc(strlen(shader)+6);
+		//assert(!(fragmentShader&&vertexShader));
+
+		sprintf(fragmentShader, "%s.frag", shader);
+		sprintf(vertexShader, "%s.vert", shader);
+
+		char path[MAX_PATH];
+
+		#ifdef WIN
+			char *shaderSubPath = "opengl\\shaders";
+		#else
+			char *shaderSubPath = "opengl/shaders";
+		#endif
+		if(loadDefaultConfigFile(fragmentShader, fragmentShader, path, shaderSubPath))
+			exit(EXIT_FAILURE);
+		// this is assumed safe because of the statement above
+		p->fragment = readTextFile(path, NULL);
+
+		if(loadDefaultConfigFile(vertexShader, vertexShader, path, shaderSubPath))
+			exit(EXIT_FAILURE);
+		p->vertex = readTextFile(path, NULL);
+
+		free(fragmentShader);
+		free(vertexShader);
+	}
+	#endif
+
 	// validate: output channels
 	p->stereo = -1;
 	if (strcmp(channels, "mono") == 0) p->stereo = 0;
@@ -223,7 +265,7 @@ void validate_config(void* params, dictionary *ini)
 						channels);
 		exit(EXIT_FAILURE);
 	}
-	
+
 	// validate: bars
 	p->autobars = 1;
 	if (p->fixedbars > 0) p->autobars = 0;
@@ -367,65 +409,16 @@ void load_config(char *configPath, void* params)
 
 	//config: creating path to default config file
 	if (configPath[0] == '\0') {
-		#if defined(__unix__)
-			char *configFile = "config";
-		#elif defined(WIN)||defined(__APPLE__)
+		#if defined(__unix__)||defined(__APPLE__)
+			char *destFile = "config";
+			char *originFile = "config.example";
+		#elif defined(WIN)
 			// editing files without an extension on windows is a pain
-			char *configFile = "config.cfg";
+			char *destFile = "config.cfg";
+			char *originFile = "config.cfg";
 		#endif
-		if(xavaGetConfigDir(configPath)) {
-			fprintf(stderr, "No HOME found (ERR_HOMELESS), exiting...");
-			exit(EXIT_FAILURE);
-		}
 
-		// config: create directory
-		xavaMkdir(configPath);
-
-		// config: adding default filename file
-		strcat(configPath, configFile);
-
-		fp = fopen(configPath, "r");
-		if (!fp) {
-			#if defined(__unix__)||defined(__APPLE__)
-				char *configFile = "config.example";
-			#endif
-			printf("Default config doesn't exist!\n"
-					"Trying to find a default config file...");
-
-			char *installPath = xavaGetInstallDir();
-			// don't trust sizeof(), it's evil
-			char *targetFile = malloc(strlen(installPath)+strlen(configFile)+1);
-			strcpy(targetFile, installPath);
-			free(installPath);
-			strcat(targetFile, configFile);
-
-			// because the program is not priviledged, read-only only
-			FILE *source = fopen(targetFile, "r");
-
-			if(!source) {
-				// inipaser magic time triggered here
-				fprintf(stderr, "FAIL\nDefault configuration file doesn't exist. "
-					"Please provide one if you can!\n");
-			} else {
-				fp = fopen(configPath, "w");
-				if(!fp) {
-					fprintf(stderr, "FAIL\n"
-						"Couldn't create config file! The program will now end.\n");
-					exit(EXIT_FAILURE);
-				}
-
-				// Copy file in the most C way possible
-				short c = fgetc(source); 
-				while (c != EOF) { 
-					fputc(c, fp); 
-					c = fgetc(source); 
-				}
-				fclose(source);
-				fclose(fp);
-				printf("DONE\n");
-			}
-			free(targetFile);
-		}
+		loadDefaultConfigFile(originFile, destFile, configPath, "");
 	} else { //opening specified file
 		fp = fopen(configPath, "rb+");
 		if (fp) {
@@ -472,6 +465,7 @@ void load_config(char *configPath, void* params)
 	#endif
 	outputMethod = (char *)iniparser_getstring(ini, "output:method", DEFAULT_OUTPUT);
 	channels =  (char *)iniparser_getstring(ini, "output:channels", "mono");
+	shader = (char *)iniparser_getstring(ini, "output:shader", "default");
 
 	p->inputsize = (int)exp2((float)iniparser_getint(ini, "smoothing:input_size", 12));
 	p->fftsize = (int)exp2((float)iniparser_getint(ini, "smoothing:fft_size", 14));

@@ -1,16 +1,23 @@
+// C stuff
+#include <GL/gl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wayland-client-protocol.h>
+// Linux stuff
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/mman.h>
-
+// Library stuff
+#include <wayland-egl.h>
+#include <EGL/egl.h>
+//#include <GL/gl.h>
+#include <wayland-client.h>
+// Wayland protocols
 #include "xdg-shell-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "xdg-output-unstable-v1-client-protocol.h"
 #include "wlr-output-managment-unstable-v1.h"
-
+// Globals
 #include "graphical.h"
 #include "../config.h"
 #include "graphical_wayland.h"
@@ -24,6 +31,9 @@ struct xdg_wm_base *xavaXDGWMBase;
 // monitor/display managment crap
 struct zwlr_layer_shell_v1 *xavaWLRLayerShell;
 struct xdg_output_manager *xavaXDGOutputManager;
+// OGL/EGL
+EGLContext *xavaWLEGLContext;
+
 /* Objects */
 struct wl_surface *xavaWLSurface;
 struct xdg_surface *xavaXDGSurface;
@@ -32,6 +42,11 @@ struct wl_shm_pool *xavaWLSHMPool;
 // monitor/display managment crap
 struct zwlr_layer_surface_v1 *xavaWLRLayerSurface;
 struct wl_output *xavaWLOutput;
+// OGL/EGL stuffs
+struct wl_egl_window *xavaWLEGLWindow;
+EGLSurface *xavaWLEGLSurface;
+static EGLDisplay xavaWLEGLDisplay;
+float glColors[8];
 
 int shmFileIndentifier;
 _Bool xavaWLCurrentlyDrawing = 0;
@@ -187,6 +202,8 @@ void handle_wayland_platform_quirks(void) {
 	// it is disabled because it messes with the timing code
 	// in the backend
 	if(p.vsync) p.vsync = 0;
+
+	GLXmode = 1;
 }
 
 /**
@@ -302,6 +319,35 @@ int init_window_wayland(void) {
 		xdg_toplevel_set_title(xavaXDGToplevel, "XAVA");
 	}
 
+	if(GLXmode) {
+		xavaWLEGLDisplay = eglGetDisplay(xavaWLDisplay);
+		eglInitialize(xavaWLEGLDisplay, NULL, NULL);
+
+		eglBindAPI (EGL_OPENGL_API);
+		EGLint attributes[] = {
+			EGL_RED_SIZE, 8,
+			EGL_GREEN_SIZE, 8,
+			EGL_BLUE_SIZE, 8,
+			EGL_NONE};
+		EGLConfig config;
+		EGLint num_config;
+		eglChooseConfig(xavaWLEGLDisplay, attributes, &config, 1, &num_config);
+		xavaWLEGLContext = eglCreateContext(xavaWLEGLDisplay, config, EGL_NO_CONTEXT, NULL);
+
+		xavaWLEGLWindow = wl_egl_window_create(xavaWLSurface, p.w, p.h);
+		xavaWLEGLSurface = eglCreateWindowSurface(xavaWLEGLDisplay, config,
+				xavaWLEGLWindow, NULL);
+		eglMakeCurrent(xavaWLEGLDisplay, xavaWLEGLSurface, xavaWLEGLSurface, xavaWLEGLContext);
+
+		//if(p.transF) {
+		//	glEnable(GL_BLEND);
+		//	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		//}
+
+		//glEnableClientState(GL_VERTEX_ARRAY);
+		//glEnableClientState(GL_COLOR_ARRAY);
+	}
+
 	// This callback basically just updates the frames
 	struct wl_callback *cb = wl_surface_frame(xavaWLSurface);
 	wl_callback_add_listener(cb, &wl_surface_frame_listener, NULL);
@@ -320,7 +366,6 @@ int apply_window_settings_wayland(void) {
 	// TODO: Fullscreen support
 	//if(p.fullF) xdg_toplevel_set_fullscreen(xavaWLSurface, NULL);
 	//else        xdg_toplevel_unset_fullscreen(xavaWLSurface);
-
 	int size = p.w*p.h*sizeof(uint32_t);
 	xavaWLSHMFD = syscall(SYS_memfd_create, "buffer", 0);
 	ftruncate(xavaWLSHMFD, size);
@@ -337,6 +382,31 @@ int apply_window_settings_wayland(void) {
 		(p.foreground_opacity*0xff)<<24);
 	p.bgcol = (p.bgcol&0x00ffffff) | ((uint32_t)
 		(p.background_opacity*0xff)<<24);
+
+
+	if(GLXmode) {
+		// correct OGL colors
+		glColors[0] = ARGB_R_32(p.col);
+		glColors[1] = ARGB_G_32(p.col);
+		glColors[2] = ARGB_B_32(p.col);
+		glColors[3] = ARGB_A_32(p.col);
+		if(p.shdw) {
+			glColors[4] = ARGB_A_32(p.shdw_col)/255.0;
+			glColors[5] = ARGB_R_32(p.shdw_col)/255.0;
+			glColors[6] = ARGB_G_32(p.shdw_col)/255.0;
+			glColors[7] = ARGB_B_32(p.shdw_col)/255.0;
+		}
+
+		//VBOGLsetup();
+
+		// fix glViewport
+		//glViewport(0, 0, p.w, p.h);
+		//glMatrixMode(GL_PROJECTION);
+		//glLoadIdentity();
+		//glOrtho(0, (double)p.w, 0, (double)p.h, -1, 1);
+		//glMatrixMode(GL_MODELVIEW);
+		//glLoadIdentity();
+	}
 
 	// clean screen because the colors changed
 	clear_screen_wayland();
@@ -356,29 +426,42 @@ int get_window_input_wayland(void) {
 // super optimized, because cpus are shit at graphics
 void draw_graphical_wayland(int bars, int rest, int *f, int *flastd) {
 	xavaWLCurrentlyDrawing = 1;
-	for(int i = 0; i < bars; i++) {
-		// get the properly aligned starting pointer
-		register uint32_t *fbDataPtr = &xavaWLFrameBuffer[rest+i*(p.bs+p.bw)];
-		register int bw = p.bw;
+	if(GLXmode) {
+		float gradColors[24];
+		//for(int i=0; i<p.gradients; i++) {
+		//	gradColors[i*3] = xgrad[i].red/65535.0;
+		//	gradColors[i*3+1] = xgrad[i].green/65535.0;
+		//	gradColors[i*3+2] = xgrad[i].blue/65535.0;
+		//}
+		glClearColor (0.0, 1.0, 0.0, 1.0);
+		glClear(GL_COLOR_BUFFER_BIT);
+		eglSwapBuffers(xavaWLEGLDisplay, xavaWLEGLDisplay);
+		//drawGLBars(rest, bars, glColors, gradColors, f);
+	} else {
+		for(int i = 0; i < bars; i++) {
+			// get the properly aligned starting pointer
+			register uint32_t *fbDataPtr = &xavaWLFrameBuffer[rest+i*(p.bs+p.bw)];
+			register int bw = p.bw;
 
-		// beginning and end of bars, depends on the order
-		register int a = p.h - f[i];
-		register int b = p.h - flastd[i];
-		register uint32_t brush = p.col;
-		if(f[i] < flastd[i]) {
-			brush = p.bgcol;
-			a^=b; b^=a; a^=b;
-		}
-
-		// advance the pointer by undrawn pixels amount
-		fbDataPtr+=a*p.w;
-
-		// loop through the rows of pixels
-		for(register int j = a; j < b; j++) {
-			for(register int k = 0; k < bw; k++) {
-				*fbDataPtr++ = brush;
+			// beginning and end of bars, depends on the order
+			register int a = p.h - f[i];
+			register int b = p.h - flastd[i];
+			register uint32_t brush = p.col;
+			if(f[i] < flastd[i]) {
+				brush = p.bgcol;
+				a^=b; b^=a; a^=b;
 			}
-			fbDataPtr += (p.w-p.bw);
+
+			// advance the pointer by undrawn pixels amount
+			fbDataPtr+=a*p.w;
+
+			// loop through the rows of pixels
+			for(register int j = a; j < b; j++) {
+				for(register int k = 0; k < bw; k++) {
+					*fbDataPtr++ = brush;
+				}
+				fbDataPtr += (p.w-p.bw);
+			}
 		}
 	}
 	xavaWLCurrentlyDrawing = 0;
